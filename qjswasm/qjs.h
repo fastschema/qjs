@@ -144,5 +144,6 @@ JSValue QJS_NewArrayBufferCopy(JSContext *ctx, uint64_t addr, uint64_t len);
 JSValue QJS_Call(JSContext *ctx, JSValue func, JSValue this, int argc, uint64_t argv);
 JSValue QJS_NewProxyValue(JSContext *ctx, int64_t proxyId);
 QJSRuntime *QJS_GetRuntime();
+void QJS_SetModuleLoaderCallback(QJSRuntime *qjs, uint64_t callback_id);
 
 void initialize();

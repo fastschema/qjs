@@ -382,6 +382,14 @@ func (c *Context) Invoke(fn *Value, this *Value, args ...*Value) (*Value, error)
 	return normalizeJsValue(c, result)
 }
 
+func (c *Context) defaultModuleLoader(moduleName string) uint64 {
+	moduleNameHandle := c.NewStringHandle(moduleName)
+	defer moduleNameHandle.Free()
+
+	result := c.runtime.Call("QJS_ModuleLoader", c.Raw(), moduleNameHandle.Raw(), 0)
+	return result.raw
+}
+
 // createJsCallArgs marshals Go Value arguments to WASM memory for JavaScript calls.
 func createJsCallArgs(c *Context, args ...*Value) (uint64, uint64) {
 	var argvPtr uint64

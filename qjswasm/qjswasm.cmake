@@ -41,6 +41,7 @@ add_executable(qjswasm
     ../helpers.c
     ../proxy.c
     ../qjs.c
+    ../module_loader.c
 )
 
 add_qjs_libc_if_needed(qjswasm)
@@ -109,6 +110,7 @@ target_link_options(qjswasm PRIVATE
     "LINKER:--export=QJS_ThrowInternalError"
 
     "LINKER:--export=QJS_ModuleLoader"
+    "LINKER:--export=QJS_SetModuleLoaderCallback"
     "LINKER:--export=QJS_Load"
     "LINKER:--export=QJS_Eval"
     "LINKER:--export=QJS_Compile"
