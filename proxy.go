@@ -368,6 +368,7 @@ func readStringFromWasmMem(mem api.Memory, ptr uint32) string {
 
 	// Read bytes until we hit a null terminator
 	var bytes []byte
+
 	offset := ptr
 
 	for {
@@ -375,6 +376,7 @@ func readStringFromWasmMem(mem api.Memory, ptr uint32) string {
 		if !ok || b == 0 {
 			break
 		}
+
 		bytes = append(bytes, b)
 
 		offset++
