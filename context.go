@@ -387,6 +387,7 @@ func (c *Context) defaultModuleLoader(moduleName string) uint64 {
 	defer moduleNameHandle.Free()
 
 	result := c.runtime.Call("QJS_ModuleLoader", c.Raw(), moduleNameHandle.Raw(), 0)
+
 	return result.raw
 }
 

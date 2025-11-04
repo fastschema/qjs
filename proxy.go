@@ -296,12 +296,13 @@ func readArgsFromWasmMem(mem api.Memory, argc uint32, argv uint32) []uint64 {
 	return args
 }
 
-// createModuleLoaderProxyWithRegistry creates a WASM module loader proxy that bridges QuickJS module loading to Go functions.
+// createModuleLoaderProxyWithRegistry creates a WASM module loader proxy that bridges QuickJS module loading to Go
+// functions.
 func createModuleLoaderProxyWithRegistry(registry *ProxyRegistry, runtime *Runtime) JsModuleLoaderProxy {
 	return func(
 		_ context.Context,
 		module api.Module,
-		jsCtx uint32,
+		_ uint32,
 		moduleNamePtr uint32,
 		callbackID uint64,
 	) uint64 {
@@ -336,6 +337,7 @@ func createModuleLoaderProxyWithRegistry(registry *ProxyRegistry, runtime *Runti
 		if err != nil {
 			// Throw error as JavaScript exception
 			ctx.ThrowError(err)
+
 			return 0
 		}
 
@@ -349,6 +351,7 @@ func createModuleLoaderProxyWithRegistry(registry *ProxyRegistry, runtime *Runti
 		if err != nil {
 			// Compilation/loading failed - throw error
 			ctx.ThrowError(err)
+
 			return 0
 		}
 
