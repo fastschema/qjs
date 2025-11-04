@@ -29,6 +29,7 @@ func IsImplementsJSONUnmarshaler(t reflect.Type) bool {
 // GetGoTypeName creates a descriptive string for complex types.
 func GetGoTypeName(input any) string {
 	var t reflect.Type
+
 	switch v := input.(type) {
 	case reflect.Type:
 		t = v
