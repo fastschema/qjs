@@ -2076,7 +2076,7 @@ func TestJsFuncToGo(t *testing.T) {
 					} else {
 						// Check if it's an error type
 						returnType := sampleFnType.Out(0)
-						if returnType.Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+						if returnType.Implements(reflect.TypeFor[error]()) {
 							// Single error return
 							assert.Nil(t, results[0].Interface())
 						} else {

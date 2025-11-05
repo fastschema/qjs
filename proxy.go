@@ -40,7 +40,7 @@ func (r *ProxyRegistry) Register(fn any) uint64 {
 }
 
 // Get retrieves a function by its ID.
-// Returns the function and true if found, nil and false otherwise.
+// Returns the function and true if found, nil, and false otherwise.
 // This method is thread-safe and can be called concurrently.
 func (r *ProxyRegistry) Get(id uint64) (any, bool) {
 	if id == 0 {
@@ -111,6 +111,46 @@ type JsFunctionProxy = func(
 	argc uint32,
 	argv uint32,
 ) (rs uint64)
+
+// ModuleLoaderFunc is a Go function that loads JavaScript modules.
+// It receives the module name and should return the module's source code as a string,
+// or an error if the module cannot be loaded.
+//
+// Return values:
+//   - (source, nil): The module source code will be compiled and loaded
+//   - ("", error): The error will be thrown as a JavaScript exception
+//   - ("", nil): Falls back to the default file system loader
+//
+// Example:
+//
+//	func(ctx *Context, moduleName string) (string, error) {
+//	    if source, ok := myModules[moduleName]; ok {
+//	        return source, nil
+//	    }
+//	    return "", nil  // Fall back to default loader
+//	}
+type ModuleLoaderFunc func(ctx *Context, moduleName string) (string, error)
+
+// JsModuleLoaderProxy is the Go host function for module loading that will be imported by the WASM module.
+// It corresponds to the following C declaration:
+//
+//	__attribute__((import_module("env"), import_name("jsModuleLoaderProxy")))
+//	extern uint64_t jsModuleLoaderProxy(uint32_t ctx, uint32_t module_name, uint64_t callback_id);
+//
+// Parameters:
+//   - jsCtx: JSContext pointer (as uint32)
+//   - moduleNamePtr: pointer to module name string in WASM memory
+//   - callbackID: ID of the registered Go callback function
+//
+// Returns:
+//   - JSModuleDef pointer as uint64 (or 0 on error)
+type JsModuleLoaderProxy = func(
+	ctx context.Context,
+	module api.Module,
+	jsCtx uint32,
+	moduleNamePtr uint32,
+	callbackID uint64,
+) uint64
 
 // createFuncProxyWithRegistry creates a WASM function proxy that bridges JavaScript function calls to Go functions.
 // It handles parameter extraction, error recovery, and result conversion between JS and Go.
@@ -254,4 +294,93 @@ func readArgsFromWasmMem(mem api.Memory, argc uint32, argv uint32) []uint64 {
 	}
 
 	return args
+}
+
+// createModuleLoaderProxyWithRegistry creates a WASM module loader proxy that bridges QuickJS module loading to Go
+// functions.
+func createModuleLoaderProxyWithRegistry(registry *ProxyRegistry, runtime *Runtime) JsModuleLoaderProxy {
+	return func(
+		_ context.Context,
+		module api.Module,
+		_ uint32,
+		moduleNamePtr uint32,
+		callbackID uint64,
+	) uint64 {
+		// Read the module name from WASM memory
+		moduleName := readStringFromWasmMem(module.Memory(), moduleNamePtr)
+
+		// Get the Go callback function
+		fn, ok := registry.Get(callbackID)
+		if !ok {
+			// No callback registered - return 0 (NULL)
+			return 0
+		}
+
+		moduleLoader, ok := fn.(ModuleLoaderFunc)
+		if !ok {
+			// Wrong type - return 0 (NULL)
+			return 0
+		}
+
+		// Get the context
+		ctx := runtime.Context()
+
+		// Call the Go module loader function
+		defer func() {
+			if r := recover(); r != nil {
+				// Handle panic by setting an exception
+				ctx.ThrowError(AnyToError(r))
+			}
+		}()
+
+		source, err := moduleLoader(ctx, moduleName)
+		if err != nil {
+			// Throw error as JavaScript exception
+			ctx.ThrowError(err)
+
+			return 0
+		}
+
+		if source == "" {
+			// Empty source - fall back to default file system loader
+			return ctx.defaultModuleLoader(moduleName)
+		}
+
+		// Compile and load the module source code
+		value, err := ctx.Load(moduleName, Code(source), TypeModule())
+		if err != nil {
+			// Compilation/loading failed - throw error
+			ctx.ThrowError(err)
+
+			return 0
+		}
+
+		// Return JSModuleDef pointer as uint64
+		return value.Raw()
+	}
+}
+
+// readStringFromWasmMem reads a null-terminated C string from WASM memory.
+func readStringFromWasmMem(mem api.Memory, ptr uint32) string {
+	if ptr == 0 {
+		return ""
+	}
+
+	// Read bytes until we hit a null terminator
+	var bytes []byte
+
+	offset := ptr
+
+	for {
+		b, ok := mem.ReadByte(offset)
+		if !ok || b == 0 {
+			break
+		}
+
+		bytes = append(bytes, b)
+
+		offset++
+	}
+
+	return string(bytes)
 }

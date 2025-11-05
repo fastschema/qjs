@@ -124,10 +124,16 @@ func New(options ...Option) (runtime *Runtime, err error) {
 		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
 	}
 
+	// Create module loader proxy with registry and runtime
+	moduleLoaderProxy := createModuleLoaderProxyWithRegistry(proxyRegistry, runtime)
+
 	if _, err := runtime.wrt.NewHostModuleBuilder("env").
 		NewFunctionBuilder().
 		WithFunc(option.ProxyFunction).
 		Export("jsFunctionProxy").
+		NewFunctionBuilder().
+		WithFunc(moduleLoaderProxy).
+		Export("jsModuleLoaderProxy").
 		Instantiate(option.Context); err != nil {
 		return nil, fmt.Errorf("failed to setup host module: %w", err)
 	}
@@ -233,6 +239,51 @@ func (r *Runtime) Compile(file string, flags ...EvalOptionFunc) ([]byte, error) 
 // Context returns the JavaScript execution context for this runtime.
 func (r *Runtime) Context() *Context {
 	return r.context
+}
+
+// SetModuleLoaderFunc sets a custom module loader function for this runtime.
+// The provided Go function will be called whenever JavaScript code imports a module.
+//
+// The module loader receives the module name and should return:
+//   - (source, nil): Module source code to compile and load
+//   - ("", error): Error to throw as JavaScript exception
+//   - ("", nil): Fall back to default file system loader
+//
+// Example - Load modules from memory:
+//
+//	modules := map[string]string{
+//	    "utils": "export const add = (a, b) => a + b;",
+//	    "config": "export const API_URL = 'https://api.example.com';",
+//	}
+//
+//	runtime.SetModuleLoaderFunc(func(ctx *qjs.Context, moduleName string) (string, error) {
+//	    if source, ok := modules[moduleName]; ok {
+//	        return source, nil  // Return source to compile
+//	    }
+//	    return "", nil  // Fall back to file system
+//	})
+//
+// Example - Logging with delegation:
+//
+//	runtime.SetModuleLoaderFunc(func(ctx *qjs.Context, moduleName string) (string, error) {
+//	    fmt.Printf("Loading: %s\n", moduleName)
+//	    return "", nil  // Delegate to default loader
+//	})
+//
+// Example - Access control:
+//
+//	runtime.SetModuleLoaderFunc(func(ctx *qjs.Context, moduleName string) (string, error) {
+//	    if !isAllowed(moduleName) {
+//	        return "", fmt.Errorf("module '%s' not allowed", moduleName)
+//	    }
+//	    return "", nil  // Load from file system
+//	})
+func (r *Runtime) SetModuleLoaderFunc(loaderFunc ModuleLoaderFunc) {
+	// Register the Go function in the proxy registry
+	callbackID := r.registry.Register(loaderFunc)
+
+	// Set the module loader callback with the callback ID
+	r.call("QJS_SetModuleLoaderCallback", r.handle.raw, callbackID)
 }
 
 // Call invokes a WebAssembly function by name with the given arguments.
