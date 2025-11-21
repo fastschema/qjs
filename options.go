@@ -39,14 +39,34 @@ type Option struct {
 	CloseOnContextDone bool
 	DisableBuildCache  bool
 	CacheDir           string
-	MemoryLimit        int
-	MaxStackSize       int
-	MaxExecutionTime   int
-	GCThreshold        int
-	QuickJSWasmBytes   []byte
-	ProxyFunction      any
-	Stdout             io.Writer
-	Stderr             io.Writer
+
+	// MemoryLimit sets the maximum WASM memory in bytes.
+	// Applied at WASM level via wazero.WithMemoryLimitPages() to prevent hangs on large allocations.
+	// Internally converted to pages (1 page = 64KB = 65536 bytes), rounding UP to ensure
+	// you get at least the requested amount. For exact limits, use multiples of 65536.
+	// Example: 268435456 bytes (256MB exactly) → 4096 pages
+	// Example: 268435457 bytes (256MB + 1 byte) → 4097 pages (~256.015625MB)
+	// Set to 0 for no limit (not recommended for untrusted code).
+	MemoryLimit int
+
+	MaxStackSize     int
+	MaxExecutionTime int
+	GCThreshold      int
+	QuickJSWasmBytes []byte
+	ProxyFunction    any
+	Stdout           io.Writer
+	Stderr           io.Writer
+
+	// Security/Sandboxing options (GitHub issue #31)
+	// DisableFilesystem prevents JavaScript code from accessing the filesystem via WASI.
+	// When enabled, WithDirMount and WithFSConfig are not configured.
+	// Use this for sandboxed environments where filesystem access should be blocked.
+	DisableFilesystem bool
+
+	// DisableSystemTime prevents JavaScript code from accessing real system time.
+	// When enabled, WithSysWalltime, WithSysNanotime, and WithSysNanosleep are not configured.
+	// This makes Date.now() return 0 and provides deterministic time for sandboxed environments.
+	DisableSystemTime bool
 }
 
 // EvalOption configures JavaScript evaluation behavior in QuickJS context.

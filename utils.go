@@ -16,12 +16,12 @@ func Min(a, b int) int {
 }
 
 func IsImplementError(rtype reflect.Type) bool {
-	return rtype.Implements(reflect.TypeOf((*error)(nil)).Elem())
+	return rtype.Implements(reflect.TypeFor[error]())
 }
 
 // IsImplementsJSONUnmarshaler checks if a type implements json.Unmarshaler.
 func IsImplementsJSONUnmarshaler(t reflect.Type) bool {
-	unmarshalerType := reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
+	unmarshalerType := reflect.TypeFor[json.Unmarshaler]()
 
 	return t.Implements(unmarshalerType) || reflect.PointerTo(t).Implements(unmarshalerType)
 }
@@ -29,6 +29,7 @@ func IsImplementsJSONUnmarshaler(t reflect.Type) bool {
 // GetGoTypeName creates a descriptive string for complex types.
 func GetGoTypeName(input any) string {
 	var t reflect.Type
+
 	switch v := input.(type) {
 	case reflect.Type:
 		t = v

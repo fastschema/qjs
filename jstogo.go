@@ -10,6 +10,12 @@ import (
 )
 
 func ToGoValue[T any](input *Value, samples ...T) (v T, err error) {
+	// Check if input is null/undefined BEFORE trying to access properties
+	if input.IsNull() || input.IsUndefined() {
+		// For null/undefined, return zero value of the target type
+		return v, nil
+	}
+
 	registryID := input.GetPropertyStr("__registry_id")
 	if !registryID.IsUndefined() && !registryID.IsNull() {
 		registryVal, ok := input.context.runtime.registry.Get(uint64(registryID.Int64()))
@@ -548,7 +554,7 @@ func jsObjectToGo[T any](
 
 	targetType := reflect.TypeOf(sample)
 	if targetType == nil {
-		targetType = reflect.TypeOf(map[string]any{})
+		targetType = reflect.TypeFor[map[string]any]()
 	}
 
 	if targetType.Kind() == reflect.Map {

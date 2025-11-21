@@ -36,8 +36,17 @@ QJSRuntime *New_QJS(
   if (gc_threshold > 0)
     JS_SetGCThreshold(runtime, gc_threshold);
 
+  // WASM STACK OVERFLOW FIX: Now safe to use with js_check_stack_overflow_wasm()
+  // Uses frame-depth counting instead of C stack pointers
+  // JS_SetMaxStackSize() just sets rt->stack_size, which js_check_stack_overflow_wasm() reads
+  // to determine max recursion depth via frame count (not C stack checking)
   if (max_stack_size > 0)
     JS_SetMaxStackSize(runtime, max_stack_size);
+
+  // Set up execution timeout handler (uses JS_SetInterruptHandler internally)
+  // max_execution_time is in milliseconds
+  if (max_execution_time > 0)
+    SetExecuteTimeout(runtime, (uint64_t)max_execution_time);
 
   /* setup the the worker context */
   js_std_set_worker_new_context_func(New_QJSContext);

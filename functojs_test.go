@@ -716,3 +716,95 @@ func TestCreateNonNilSample(t *testing.T) {
 		})
 	}
 }
+
+// TestVariadicFunctionWithNullUndefined is a regression test for the bug where
+// JavaScript null/undefined values passed to Go variadic functions caused panics.
+//
+// Bug: JavaScript null/undefined convert to invalid reflect.Value, which caused
+// "reflect: call of reflect.Value.Set on zero Value" panic in CreateVariadicSlice.
+//
+// Fix: Check for invalid reflect.Value before calling Set(), use reflect.Zero() instead.
+func TestVariadicFunctionWithNullUndefined(t *testing.T) {
+	runtime := must(qjs.New(qjs.Option{}))
+	defer runtime.Close()
+	ctx := runtime.Context()
+
+	// Create a variadic function that logs all arguments
+	logFunc := func(args ...any) string {
+		result := fmt.Sprintf("received %d args", len(args))
+		for i, arg := range args {
+			result += fmt.Sprintf(", arg[%d]=%v (nil=%v)", i, arg, arg == nil)
+		}
+		return result
+	}
+
+	// Register function
+	logValue := must(qjs.ToJsValue(ctx, map[string]any{
+		"log": logFunc,
+	}))
+	ctx.Global().SetPropertyStr("api", logValue)
+
+	tests := []struct {
+		name     string
+		code     string
+		wantErr  bool
+		contains string // Expected substring in result
+	}{
+		{
+			name:     "null_only",
+			code:     `api.log(null)`,
+			wantErr:  false,
+			contains: "received 1 args",
+		},
+		{
+			name:     "undefined_only",
+			code:     `api.log(undefined)`,
+			wantErr:  false,
+			contains: "received 1 args",
+		},
+		{
+			name:     "null_and_undefined",
+			code:     `api.log(null, undefined)`,
+			wantErr:  false,
+			contains: "received 2 args",
+		},
+		{
+			name:     "mixed_with_strings",
+			code:     `api.log("hello", null, "world", undefined)`,
+			wantErr:  false,
+			contains: "received 4 args",
+		},
+		{
+			name:     "mixed_with_numbers",
+			code:     `api.log(42, null, 3.14, undefined)`,
+			wantErr:  false,
+			contains: "received 4 args",
+		},
+		{
+			name:     "only_undefined_multiple",
+			code:     `api.log(undefined, undefined, undefined)`,
+			wantErr:  false,
+			contains: "received 3 args",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ctx.Eval("test.js", qjs.Code(tt.code))
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err, "Variadic function with null/undefined should not error")
+			require.NotNil(t, result, "Result should not be nil")
+			defer result.Free()
+
+			// Verify result contains expected substring
+			resultStr := result.String()
+			assert.Contains(t, resultStr, tt.contains, "Result should contain expected substring")
+
+			t.Logf("Test %s result: %s", tt.name, resultStr)
+		})
+	}
+}

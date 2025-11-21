@@ -11,16 +11,17 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	wsp1 "github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 //go:embed qjs.wasm
 var wasmBytes []byte
 
 var (
-	compiledQJSModule   wazero.CompiledModule
-	cachedRuntimeConfig wazero.RuntimeConfig
-	cachedBytesHash     uint64
-	compilationMutex    sync.Mutex
+	compiledQJSModule wazero.CompiledModule
+	compilationCache  wazero.CompilationCache // Shared cache for performance
+	cachedBytesHash   uint64
+	compilationMutex  sync.Mutex
 )
 
 // Runtime wraps a QuickJS WebAssembly runtime with memory management.
@@ -59,18 +60,21 @@ func createGlobalCompiledModule(
 
 	// Check if we need to compile or recompile
 	if compiledQJSModule == nil || cachedBytesHash != currentHash || disableBuildCache {
-		var cache wazero.CompilationCache
-		if cacheDir == "" {
-			cache = wazero.NewCompilationCache()
-		} else if cache, err = wazero.NewCompilationCacheWithDir(cacheDir); err != nil {
-			return fmt.Errorf("failed to create compilation cache with dir %s: %w", cacheDir, err)
+		// Create or reuse compilation cache (expensive, so we cache it globally)
+		if compilationCache == nil {
+			if cacheDir == "" {
+				compilationCache = wazero.NewCompilationCache()
+			} else if compilationCache, err = wazero.NewCompilationCacheWithDir(cacheDir); err != nil {
+				return fmt.Errorf("failed to create compilation cache with dir %s: %w", cacheDir, err)
+			}
 		}
 
-		cachedRuntimeConfig = wazero.
+		// Create temporary RuntimeConfig for compilation (not cached)
+		runtimeConfig := wazero.
 			NewRuntimeConfig().
-			WithCompilationCache(cache).
+			WithCompilationCache(compilationCache).
 			WithCloseOnContextDone(closeOnContextDone)
-		wrt := wazero.NewRuntimeWithConfig(ctx, cachedRuntimeConfig)
+		wrt := wazero.NewRuntimeWithConfig(ctx, runtimeConfig)
 
 		if compiledQJSModule, err = wrt.CompileModule(ctx, qjsBytes); err != nil {
 			return fmt.Errorf("failed to compile qjs module: %w", err)
@@ -115,10 +119,28 @@ func New(options ...Option) (runtime *Runtime, err error) {
 		registry: proxyRegistry,
 	}
 
-	runtime.wrt = wazero.NewRuntimeWithConfig(
-		option.Context,
-		cachedRuntimeConfig,
-	)
+	// Create per-instance RuntimeConfig with shared compilation cache
+	// This allows per-instance memory limits while keeping compilation fast
+	runtimeConfig := wazero.
+		NewRuntimeConfig().
+		WithCompilationCache(compilationCache). // Shared cache (fast)
+		WithCloseOnContextDone(option.CloseOnContextDone)
+
+	// Apply per-instance memory limit if specified
+	// Convert MemoryLimit (bytes) to wazero pages (1 page = 64KB = 65536 bytes)
+	// Rounds UP to ensure user gets at least requested memory.
+	// For exact limits, ensure MemoryLimit is a multiple of 65536 (64KB page size).
+	// Example: 268435456 bytes (256MB) → 4096 pages (exact)
+	// Example: 268435457 bytes (256MB + 1 byte) → 4097 pages (~256.015625MB)
+	if option.MemoryLimit > 0 {
+		// Round up: (bytes + pageSize - 1) / pageSize
+		memoryPages := uint32((option.MemoryLimit + 65535) / 65536)
+		if memoryPages > 0 {
+			runtimeConfig = runtimeConfig.WithMemoryLimitPages(memoryPages)
+		}
+	}
+
+	runtime.wrt = wazero.NewRuntimeWithConfig(option.Context, runtimeConfig)
 
 	if _, err := wsp1.Instantiate(option.Context, runtime.wrt); err != nil {
 		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
@@ -132,20 +154,30 @@ func New(options ...Option) (runtime *Runtime, err error) {
 		return nil, fmt.Errorf("failed to setup host module: %w", err)
 	}
 
-	fsConfig := wazero.
-		NewFSConfig().
-		WithDirMount(runtime.option.CWD, "/")
+	// Build module config with optional WASI APIs based on security options
+	moduleConfig := wazero.NewModuleConfig().
+		WithStartFunctions(option.StartFunctionName).
+		WithStdout(option.Stdout).
+		WithStderr(option.Stderr)
+
+	// Conditionally enable filesystem access (GitHub issue #31)
+	if !option.DisableFilesystem {
+		fsConfig := wazero.NewFSConfig().WithDirMount(runtime.option.CWD, "/")
+		moduleConfig = moduleConfig.WithFSConfig(fsConfig)
+	}
+
+	// Conditionally enable system time APIs (GitHub issue #31)
+	if !option.DisableSystemTime {
+		moduleConfig = moduleConfig.
+			WithSysWalltime().
+			WithSysNanotime().
+			WithSysNanosleep()
+	}
+
 	if runtime.module, err = runtime.wrt.InstantiateModule(
 		option.Context,
 		compiledQJSModule,
-		wazero.NewModuleConfig().
-			WithStartFunctions(option.StartFunctionName).
-			WithSysWalltime().
-			WithSysNanotime().
-			WithSysNanosleep().
-			WithFSConfig(fsConfig).
-			WithStdout(option.Stdout).
-			WithStderr(option.Stderr),
+		moduleConfig,
 	); err != nil {
 		return nil, fmt.Errorf("failed to instantiate module: %w", err)
 	}
@@ -317,6 +349,18 @@ func (r *Runtime) call(name string, args ...uint64) uint64 {
 
 	results, err := fn.Call(r.context, args...)
 	if err != nil {
+		// Handle context cancellation/timeout gracefully via sys.ExitError
+		// This is the proper way to detect when wazero's CloseOnContextDone
+		// terminates execution due to context cancellation or timeout.
+		// See: https://pkg.go.dev/github.com/tetratelabs/wazero/sys#ExitError
+		var exitErr *sys.ExitError
+		if errors.As(err, &exitErr) {
+			// Context was cancelled or timed out - this is expected behavior
+			// Return a clean error instead of panicking
+			panic(fmt.Errorf("execution interrupted (context done): %w", err))
+		}
+
+		// For other errors, panic with full context
 		stack := debug.Stack()
 		panic(fmt.Errorf("failed to call %s: %w\nstack: %s", name, err, stack))
 	}

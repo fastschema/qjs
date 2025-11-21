@@ -2,7 +2,6 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <float.h>
-#include <sys/time.h>
 
 #ifdef QJS_DEBUG_RUNTIME_ADDRESS
 /**
@@ -60,58 +59,43 @@ JSValue QJS_ThrowInternalError(JSContext *ctx, const char *fmt)
     return JS_ThrowInternalError(ctx, "%s", fmt);
 }
 
-// Get current time in milliseconds
-static uint64_t get_time_ms(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)tv.tv_sec * 1000 + (uint64_t)tv.tv_usec / 1000;
-}
+// int QJS_TimeoutHandler(JSRuntime *rt, void *opaque)
+// {
+//     TimeoutArgs *ts = (TimeoutArgs *)opaque;
+//     time_t timeout = ts->timeout;
+//     time_t start = ts->start;
+//     if (timeout <= 0)
+//     {
+//         return 0;
+//     }
 
-int QJS_TimeoutHandler(JSRuntime *rt, void *opaque)
-{
-    TimeoutArgs *ts = (TimeoutArgs *)opaque;
-    uint64_t timeout_ms = ts->timeout_ms;
-    uint64_t start_ms = ts->start_ms;
+//     time_t now = time(NULL);
+//     if (now - start > timeout)
+//     {
+//         free(ts);
+//         return 1;
+//     }
 
-    if (timeout_ms <= 0)
-    {
-        return 0;
-    }
+//     return 0;
+// }
 
-    uint64_t now_ms = get_time_ms();
-    uint64_t elapsed_ms = now_ms - start_ms;
+// void SetExecuteTimeout(JSRuntime *rt, time_t timeout)
+// {
+//     TimeoutArgs *ts = malloc(sizeof(TimeoutArgs));
+//     ts->start = time(NULL);
+//     ts->timeout = timeout;
+//     JS_SetInterruptHandler(rt, &QJS_TimeoutHandler, ts);
+// }
 
-    if (elapsed_ms > timeout_ms)
-    {
-        free(ts);
-        return 1;  // Interrupt execution
-    }
+// int QJS_InterruptHandler(JSRuntime *rt, void *handlerArgs)
+// {
+//     return goInterruptHandler(rt, handlerArgs);
+// }
 
-    return 0;  // Continue execution
-}
-
-void SetExecuteTimeout(JSRuntime *rt, uint64_t timeout_ms)
-{
-    TimeoutArgs *ts = malloc(sizeof(TimeoutArgs));
-    ts->start_ms = get_time_ms();
-    ts->timeout_ms = timeout_ms;
-    JS_SetInterruptHandler(rt, &QJS_TimeoutHandler, ts);
-}
-
-int QJS_InterruptHandler(JSRuntime *rt, void *handlerArgs)
-{
-    // Note: Go callback not implemented yet
-    // Can be extended later for context-aware interruption
-    (void)rt; // Unused
-    (void)handlerArgs; // Unused
-    return 0; // Don't interrupt (use timeout handler instead)
-}
-
-void SetInterruptHandler(JSRuntime *rt, void *handlerArgs)
-{
-    JS_SetInterruptHandler(rt, &QJS_InterruptHandler, handlerArgs);
-}
+// void SetInterruptHandler(JSRuntime *rt, void *handlerArgs)
+// {
+//     JS_SetInterruptHandler(rt, &QJS_InterruptHandler, handlerArgs);
+// }
 
 // Copied from "quickjs/qjs.c"
 #ifndef countof

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"reflect"
 	"runtime/debug"
+	"strings"
 )
 
 var (
-	ErrRType                   = reflect.TypeOf((*error)(nil)).Elem()
+	ErrRType                   = reflect.TypeFor[error]()
 	ErrZeroRValue              = reflect.Zero(ErrRType)
 	ErrCallFuncOnNonObject     = errors.New("cannot call function on non-object")
 	ErrNotAnObject             = errors.New("value is not an object")
@@ -40,15 +41,16 @@ func combineErrors(errs ...error) error {
 		return nil
 	}
 
-	var errStr string
+	var errStr strings.Builder
 
 	for _, err := range errs {
 		if err != nil {
-			errStr += err.Error() + "\n"
+			errStr.WriteString(err.Error())
+			errStr.WriteString("\n")
 		}
 	}
 
-	return errors.New(errStr)
+	return errors.New(errStr.String())
 }
 
 func newMaxLengthExceededErr(request uint, maxLen int64, index int) error {

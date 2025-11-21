@@ -1,0 +1,222 @@
+diff --git a/quickjs.c b/quickjs.c
+index e0b38c7..b499f19 100644
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -1819,11 +1819,50 @@ static inline uintptr_t js_get_stack_pointer(void)
+ #endif
+ }
+ 
+-static inline bool js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
+-{
+-    uintptr_t sp;
+-    sp = js_get_stack_pointer() - alloca_size;
+-    return unlikely(sp < rt->stack_limit);
++/* WASM-safe stack overflow detection using frame depth counting
++ *
++ * Note: The original js_check_stack_overflow() used C stack pointers via
++ * js_get_stack_pointer() which doesn't work in WASM (causes "out of bounds
++ * memory access" panic). This implementation counts JSStackFrame depth instead.
++ */
++static inline int js_get_call_depth(JSRuntime *rt) {
++    int depth = 0;
++    JSStackFrame *sf = rt->current_stack_frame;
++
++    /* Safety limit to prevent infinite loop if linked list is corrupted */
++    const int MAX_SAFETY_DEPTH = 100000;
++
++    while (sf != NULL && depth < MAX_SAFETY_DEPTH) {
++        depth++;
++        sf = sf->prev_frame;
++    }
++
++    return depth;
++}
++
++static inline bool js_check_stack_overflow_wasm(JSRuntime *rt, size_t alloca_size) {
++    /* Default max depth is 256 frames (safe for WASM with limited initial memory)
++     * This is used even when stack_size is 0 (no explicit limit set).
++     * Much lower than MAX_SAFETY_DEPTH (100000) to prevent deep recursion issues.
++     */
++    int max_depth = 256;
++
++    /* Get current call depth by traversing stack frames */
++    int depth = js_get_call_depth(rt);
++
++    /* If stack_size is explicitly set (in bytes), convert to frame depth
++     * Formula: max_frames = stack_size_bytes / 1024
++     * Example: 256KB (262144 bytes) → 256 frames
++     * Example: 1MB (1048576 bytes) → 1024 frames
++     * Cap at MAX_SAFETY_DEPTH to prevent corrupted linked list issues.
++     */
++    if (rt->stack_size > 0) {
++        int calculated_depth = (int)(rt->stack_size / 1024);
++        /* Cap at MAX_SAFETY_DEPTH (100000) for safety */
++        max_depth = calculated_depth < 100000 ? calculated_depth : 100000;
++    }
++
++    return depth >= max_depth;
+ }
+ 
+ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
+@@ -15984,7 +16023,7 @@ static JSValue js_call_c_function(JSContext *ctx, JSValueConst func_obj,
+     arg_count = p->u.cfunc.length;
+ 
+     /* better to always check stack overflow */
+-    if (js_check_stack_overflow(rt, sizeof(arg_buf[0]) * arg_count))
++    if (js_check_stack_overflow_wasm(rt, sizeof(arg_buf[0]) * arg_count))
+         return JS_ThrowStackOverflow(ctx);
+ 
+     prev_sf = rt->current_stack_frame;
+@@ -16108,7 +16147,7 @@ static JSValue js_call_bound_function(JSContext *ctx, JSValueConst func_obj,
+     p = JS_VALUE_GET_OBJ(func_obj);
+     bf = p->u.bound_function;
+     arg_count = bf->argc + argc;
+-    if (js_check_stack_overflow(ctx->rt, sizeof(JSValue) * arg_count))
++    if (js_check_stack_overflow_wasm(ctx->rt, sizeof(JSValue) * arg_count))
+         return JS_ThrowStackOverflow(ctx);
+     arg_buf = alloca(sizeof(JSValue) * arg_count);
+     for(i = 0; i < bf->argc; i++) {
+@@ -16253,7 +16292,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+ 
+     alloca_size = sizeof(JSValue) * (arg_allocated_size + b->var_count +
+                                      b->stack_size);
+-    if (js_check_stack_overflow(rt, alloca_size))
++    if (js_check_stack_overflow_wasm(rt, alloca_size))
+         return JS_ThrowStackOverflow(caller_ctx);
+ 
+     sf->is_strict_mode = b->is_strict_mode;
+@@ -18955,7 +18994,7 @@ static JSValue async_func_resume(JSContext *ctx, JSAsyncFunctionState *s)
+ {
+     JSValue func_obj;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0))
++    if (js_check_stack_overflow_wasm(ctx->rt, 0))
+         return JS_ThrowStackOverflow(ctx);
+ 
+     /* the tag does not matter provided it is not an object */
+@@ -20756,7 +20795,7 @@ static __exception int next_token(JSParseState *s)
+     bool ident_has_escape;
+     JSAtom atom;
+ 
+-    if (js_check_stack_overflow(s->ctx->rt, 1000)) {
++    if (js_check_stack_overflow_wasm(s->ctx->rt, 1000)) {
+         JS_ThrowStackOverflow(s->ctx);
+         return -1;
+     }
+@@ -21386,7 +21425,7 @@ static __exception int json_next_token(JSParseState *s)
+     int c;
+     JSAtom atom;
+ 
+-    if (js_check_stack_overflow(s->ctx->rt, 1000)) {
++    if (js_check_stack_overflow_wasm(s->ctx->rt, 1000)) {
+         JS_ThrowStackOverflow(s->ctx);
+         return -1;
+     }
+@@ -28426,7 +28465,7 @@ static int js_inner_module_linking(JSContext *ctx, JSModuleDef *m,
+     bool is_c_module;
+     JSValue ret_val;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         return -1;
+     }
+@@ -28924,7 +28963,7 @@ static int gather_available_ancestors(JSContext *ctx, JSModuleDef *module,
+ {
+     int i;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         return -1;
+     }
+@@ -28972,7 +29011,7 @@ static JSValue js_async_module_execution_rejected(JSContext *ctx, JSValueConst t
+     JSValueConst error = argv[0];
+     int i;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0))
++    if (js_check_stack_overflow_wasm(ctx->rt, 0))
+         return JS_ThrowStackOverflow(ctx);
+ 
+     if (module->status == JS_MODULE_STATUS_EVALUATED) {
+@@ -29123,7 +29162,7 @@ static int js_inner_module_evaluation(JSContext *ctx, JSModuleDef *m,
+     JSModuleDef *m1;
+     int i;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         *pvalue = JS_GetException(ctx);
+         return -1;
+@@ -35655,7 +35694,7 @@ static int JS_WriteObjectRec(BCWriterState *s, JSValueConst obj)
+ {
+     uint32_t tag;
+ 
+-    if (js_check_stack_overflow(s->ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(s->ctx->rt, 0)) {
+         JS_ThrowStackOverflow(s->ctx);
+         return -1;
+     }
+@@ -36946,7 +36985,7 @@ static JSValue JS_ReadObjectRec(BCReaderState *s)
+     uint8_t tag;
+     JSValue obj = JS_UNDEFINED;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0))
++    if (js_check_stack_overflow_wasm(ctx->rt, 0))
+         return JS_ThrowStackOverflow(ctx);
+ 
+     if (bc_get_u8(s, &tag))
+@@ -40961,7 +41000,7 @@ static int64_t JS_FlattenIntoArray(JSContext *ctx, JSValueConst target,
+     int64_t sourceIndex, elementLen;
+     int present, is_array;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         return -1;
+     }
+@@ -45640,7 +45679,7 @@ fail:
+ bool lre_check_stack_overflow(void *opaque, size_t alloca_size)
+ {
+     JSContext *ctx = opaque;
+-    return js_check_stack_overflow(ctx->rt, alloca_size);
++    return js_check_stack_overflow_wasm(ctx->rt, alloca_size);
+ }
+ 
+ int lre_check_timeout(void *opaque)
+@@ -46965,7 +47004,7 @@ static JSValue internalize_json_property(JSContext *ctx, JSValueConst holder,
+     JSAtom prop;
+     JSPropertyEnum *atoms = NULL;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         return JS_ThrowStackOverflow(ctx);
+     }
+ 
+@@ -47145,7 +47184,7 @@ static int js_json_to_str(JSContext *ctx, JSONStringifyContext *jsc,
+     tab = JS_UNDEFINED;
+     prop = JS_UNDEFINED;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         goto exception;
+     }
+@@ -47674,7 +47713,7 @@ static JSProxyData *get_proxy_method(JSContext *ctx, JSValue *pmethod,
+     JSValue method;
+ 
+     /* safer to test recursion in all proxy methods */
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         return NULL;
+     }
+@@ -48476,7 +48515,7 @@ static int js_proxy_isArray(JSContext *ctx, JSValueConst obj)
+     if (!s)
+         return false;
+ 
+-    if (js_check_stack_overflow(ctx->rt, 0)) {
++    if (js_check_stack_overflow_wasm(ctx->rt, 0)) {
+         JS_ThrowStackOverflow(ctx);
+         return -1;
+     }

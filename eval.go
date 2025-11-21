@@ -1,5 +1,7 @@
 package qjs
 
+import "fmt"
+
 func load(c *Context, file string, flags ...EvalOptionFunc) (*Value, error) {
 	if file == "" {
 		return nil, ErrInvalidFileName
@@ -18,7 +20,21 @@ func load(c *Context, file string, flags ...EvalOptionFunc) (*Value, error) {
 	return normalizeJsValue(c, result)
 }
 
-func eval(c *Context, file string, flags ...EvalOptionFunc) (*Value, error) {
+func eval(c *Context, file string, flags ...EvalOptionFunc) (value *Value, err error) {
+	// Recover from WASM panics (e.g., module closed due to context cancellation)
+	// This provides graceful error handling when CloseOnContextDone closes the module
+	defer func() {
+		if r := recover(); r != nil {
+			value = nil
+			// Check if context was cancelled
+			if c.Context != nil && c.Err() != nil {
+				err = fmt.Errorf("execution interrupted (context cancelled): %w", c.Err())
+			} else {
+				err = fmt.Errorf("execution interrupted (WASM panic): %v", r)
+			}
+		}
+	}()
+
 	if file == "" {
 		return nil, ErrInvalidFileName
 	}

@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -554,13 +555,9 @@ func NumericBoundsCheck(floatVal float64, targetKind reflect.Kind) error {
 
 // IsTypedArray returns true if the input is TypedArray or DataView.
 func IsTypedArray(input *Value) bool {
-	for _, typeName := range typedArrayTypes {
-		if input.IsGlobalInstanceOf(typeName) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(typedArrayTypes, func(typeName string) bool {
+		return input.IsGlobalInstanceOf(typeName)
+	})
 }
 
 // processTempValue validates if temp is a valid result for the given T type.
@@ -717,7 +714,7 @@ func createGoObjectTarget[T any](input ObjectOrMap, samples ...T) (
 
 	target = reflect.TypeOf(sample)
 	if target == nil {
-		target = reflect.TypeOf(map[string]any{})
+		target = reflect.TypeFor[map[string]any]()
 	}
 
 	temp = reflect.New(target).Interface()

@@ -30,8 +30,8 @@ int JS_DeletePropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx, int fl
 
 typedef struct TimeoutArgs
 {
-  time_t start;
-  time_t timeout;
+  uint64_t start_ms;    // Start time in milliseconds
+  uint64_t timeout_ms;  // Timeout duration in milliseconds
 } TimeoutArgs;
 
 typedef struct
@@ -70,8 +70,8 @@ JSRuntime *JS_GetRuntime(JSContext *ctx);
 
 JSValue InvokeFunctionProxy(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 JSValue InvokeAsyncFunctionProxy(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
-// void SetInterruptHandler(JSRuntime *rt, void *handlerArgs);
-// void SetExecuteTimeout(JSRuntime *rt, time_t timeout);
+void SetInterruptHandler(JSRuntime *rt, void *handlerArgs);
+void SetExecuteTimeout(JSRuntime *rt, uint64_t timeout_ms);
 
 // Headers for GO exported functions
 // int goInterruptHandler(JSRuntime *rt, void *handler);
