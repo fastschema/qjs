@@ -176,7 +176,7 @@ func main() {
 	// Precompile the script to bytecode
 	byteCode := must(ctx.Compile("script.js", qjs.Code(script), qjs.TypeModule()))
 	// Use a pool of runtimes for concurrent requests
-	pool := qjs.NewPool(3, &qjs.Option{}, func(r *qjs.Runtime) error {
+	pool := qjs.NewPool(3, qjs.Option{}, func(r *qjs.Runtime) error {
 		results := must(r.Context().Eval("script.js", qjs.Bytecode(byteCode), qjs.TypeModule()))
 		// Store the exported functions in the global object for easy access
 		r.Context().Global().SetPropertyStr("handlers", results)
@@ -591,7 +591,7 @@ func main() {
 		return nil
 	}
 	// Create a pool with 3 runtimes
-	pool := qjs.NewPool(3, &qjs.Option{}, setupFunc)
+	pool := qjs.NewPool(3, qjs.Option{}, setupFunc)
 	numWorkers := 5
 	numTasks := 3
 	var wg sync.WaitGroup
