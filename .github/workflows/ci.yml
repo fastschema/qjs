@@ -45,7 +45,7 @@ jobs:
         run: gotestsum -f testname -- ./... -race -count=1 -coverprofile=coverage.txt -covermode=atomic
       - name: Upload coverage reports to Codecov
         if: ${{ matrix.platform == 'ubuntu-latest' && matrix.go == '1.24.x' }}
-        uses: codecov/codecov-action@v5.5.1
+        uses: codecov/codecov-action@v5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
