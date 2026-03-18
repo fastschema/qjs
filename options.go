@@ -3,6 +3,7 @@ package qjs
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"io"
 	"os"
 )
@@ -32,6 +33,7 @@ const (
 
 type Option struct {
 	CWD               string
+	FS                fs.FS
 	StartFunctionName string
 	Context           context.Context
 	// Enabling this option significantly increases evaluation time

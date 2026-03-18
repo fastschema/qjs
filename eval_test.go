@@ -3,6 +3,7 @@ package qjs_test
 import (
 	"path"
 	"testing"
+	"testing/fstest"
 
 	"github.com/fastschema/qjs"
 	"github.com/stretchr/testify/assert"
@@ -376,6 +377,25 @@ func TestModuleLoading(t *testing.T) {
 			},
 		}
 		runEvalTests(t, tests, "./testdata/00_loader")
+	})
+
+	t.Run("FS_Module_Imports", func(t *testing.T) {
+		rt := must(qjs.New(qjs.Option{
+			FS: fstest.MapFS{
+				"math-utils.js": &fstest.MapFile{
+					Data: []byte("export function add(a, b) { return a + b; }"),
+				},
+				"main.js": &fstest.MapFile{
+					Data: []byte("import { add } from 'math-utils.js'; export default String(add(5, 5));"),
+				},
+			},
+		}))
+		defer rt.Close()
+
+		val, err := rt.Eval("main.js", qjs.TypeModule())
+		defer val.Free()
+		assert.NoError(t, err)
+		assert.Equal(t, "10", val.String())
 	})
 }
 
