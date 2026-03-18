@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/fastschema/qjs"
 	"github.com/stretchr/testify/assert"
@@ -64,6 +65,24 @@ func TestEvalOptions(t *testing.T) {
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "failed to get runtime options")
 		})
+	})
+
+	t.Run("FSOption", func(t *testing.T) {
+		runtime, err := qjs.New(qjs.Option{
+			FS: fstest.MapFS{
+				"main.js": &fstest.MapFile{
+					Data: []byte("export default 'from fs'"),
+				},
+			},
+		})
+		require.NoError(t, err)
+		defer runtime.Close()
+
+		val, err := runtime.Eval("main.js", qjs.TypeModule())
+		require.NoError(t, err)
+		defer val.Free()
+
+		assert.Equal(t, "from fs", val.String())
 	})
 
 	t.Run("CodeOption", func(t *testing.T) {
