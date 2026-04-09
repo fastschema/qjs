@@ -132,6 +132,8 @@ target_link_options(qjswasm PRIVATE
     "LINKER:--export=QJS_IsConstructor"
     "LINKER:--export=QJS_IsInstanceOf"
     "LINKER:--export=QJS_GetOwnPropertyNames"
+    "LINKER:--export=QJS_GetOwnPropertyFlags"
+    "LINKER:--export=QJS_GetIntrinsicKind"
     "LINKER:--export=QJS_ParseJSON"
     "LINKER:--export=QJS_NewBool"
     "LINKER:--export=QJS_NewBigInt64"

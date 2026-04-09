@@ -132,7 +132,9 @@ JSValue QJS_NewBigUint64(JSContext *ctx, uint64_t val);
 JSValue QJS_NewFloat64(JSContext *ctx, uint64_t bits);
 uint64_t *QJS_AtomToCString(JSContext *ctx, JSAtom atom);
 
-uint64_t *QJS_GetOwnPropertyNames(JSContext *ctx, JSValue v);
+uint64_t *QJS_GetOwnPropertyNames(JSContext *ctx, JSValue v, uint32_t flags);
+uint64_t QJS_GetOwnPropertyFlags(JSContext *ctx, JSValue obj, JSAtom prop);
+uint32_t QJS_GetIntrinsicKind(JSContext *ctx, JSValue obj);
 JSValue QJS_ParseJSON(JSContext *ctx, const char *buf);
 JSValue QJS_NewBool(JSContext *ctx, int val);
 uint64_t *QJS_GetArrayBuffer(JSContext *ctx, JSValue obj);

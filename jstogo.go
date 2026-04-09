@@ -60,13 +60,13 @@ func toGoValue[T any](
 		return v, err
 	}
 
-	if input.IsGlobalInstanceOf("Date") {
+	if input.IsDate() {
 		temp, err = JsTimeToGo(input)
 
 		return v, err
 	}
 
-	if input.IsGlobalInstanceOf("RegExp") {
+	if input.IsRegExp() {
 		temp = input.String()
 
 		return v, err

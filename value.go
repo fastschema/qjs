@@ -35,6 +35,20 @@ type JSPropertyEnum struct {
 
 const jsPropertyEnumSize = uint32(unsafe.Sizeof(JSPropertyEnum{}))
 
+const (
+	JSPropConfigurable uint32 = 1 << 0
+	JSPropWritable     uint32 = 1 << 1
+	JSPropEnumerable   uint32 = 1 << 2
+	JSPropHasGet       uint32 = 1 << 11
+	JSPropHasSet       uint32 = 1 << 12
+	JSPropHasValue     uint32 = 1 << 13
+
+	JSGPNStringMask  uint32 = 1 << 0
+	JSGPNSymbolMask  uint32 = 1 << 1
+	JSGPNPrivateMask uint32 = 1 << 2
+	JSGPNSetEnum     uint32 = 1 << 5
+)
+
 // Atom represents a JavaScript atom:
 // Object property names and some strings are stored as Atoms (unique strings) to save memory and allow fast comparison.
 type Atom struct {
@@ -46,6 +60,117 @@ type Atom struct {
 type OwnProperty struct {
 	isEnumerable bool
 	atom         Atom
+}
+
+type PropertyDescriptor struct {
+	Exists       bool
+	Enumerable   bool
+	Configurable bool
+	Writable     bool
+	HasValue     bool
+	HasGetter    bool
+	HasSetter    bool
+}
+
+func (d PropertyDescriptor) IsAccessor() bool {
+	return d.HasGetter || d.HasSetter
+}
+
+type IntrinsicKind uint32
+
+const (
+	IntrinsicUnknown IntrinsicKind = iota
+	IntrinsicObject
+	IntrinsicArray
+	IntrinsicDate
+	IntrinsicRegExp
+	IntrinsicMap
+	IntrinsicSet
+	IntrinsicArrayBuffer
+	IntrinsicDataView
+	IntrinsicUint8Array
+	IntrinsicUint8ClampedArray
+	IntrinsicInt8Array
+	IntrinsicUint16Array
+	IntrinsicInt16Array
+	IntrinsicUint32Array
+	IntrinsicInt32Array
+	IntrinsicBigInt64Array
+	IntrinsicBigUint64Array
+	IntrinsicFloat32Array
+	IntrinsicFloat64Array
+	IntrinsicFloat16Array
+	IntrinsicError
+)
+
+func (k IntrinsicKind) String() string {
+	switch k {
+	case IntrinsicObject:
+		return "Object"
+	case IntrinsicArray:
+		return "Array"
+	case IntrinsicDate:
+		return "Date"
+	case IntrinsicRegExp:
+		return "RegExp"
+	case IntrinsicMap:
+		return "Map"
+	case IntrinsicSet:
+		return "Set"
+	case IntrinsicArrayBuffer:
+		return "ArrayBuffer"
+	case IntrinsicDataView:
+		return "DataView"
+	case IntrinsicUint8Array:
+		return "Uint8Array"
+	case IntrinsicUint8ClampedArray:
+		return "Uint8ClampedArray"
+	case IntrinsicInt8Array:
+		return "Int8Array"
+	case IntrinsicUint16Array:
+		return "Uint16Array"
+	case IntrinsicInt16Array:
+		return "Int16Array"
+	case IntrinsicUint32Array:
+		return "Uint32Array"
+	case IntrinsicInt32Array:
+		return "Int32Array"
+	case IntrinsicBigInt64Array:
+		return "BigInt64Array"
+	case IntrinsicBigUint64Array:
+		return "BigUint64Array"
+	case IntrinsicFloat32Array:
+		return "Float32Array"
+	case IntrinsicFloat64Array:
+		return "Float64Array"
+	case IntrinsicFloat16Array:
+		return "Float16Array"
+	case IntrinsicError:
+		return "Error"
+	default:
+		return "Unknown"
+	}
+}
+
+func (k IntrinsicKind) IsTypedArray() bool {
+	switch k {
+	case IntrinsicDataView,
+		IntrinsicUint8Array,
+		IntrinsicUint8ClampedArray,
+		IntrinsicInt8Array,
+		IntrinsicUint16Array,
+		IntrinsicInt16Array,
+		IntrinsicUint32Array,
+		IntrinsicInt32Array,
+		IntrinsicBigInt64Array,
+		IntrinsicBigUint64Array,
+		IntrinsicFloat32Array,
+		IntrinsicFloat64Array,
+		IntrinsicFloat16Array:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p OwnProperty) String() string {
@@ -210,6 +335,10 @@ func (v *Value) Type() string {
 		return "ArrayBuffer"
 	}
 
+	if kind := v.IntrinsicKind(); kind.IsTypedArray() {
+		return kind.String()
+	}
+
 	return "unknown"
 }
 
@@ -219,7 +348,7 @@ func (v *Value) NewUndefined() *Value {
 
 // GetOwnPropertyNames returns the names of the properties of the value.
 func (v *Value) GetOwnPropertyNames() (_ []string, err error) {
-	pList := v.GetOwnProperties()
+	pList := v.getOwnProperties(JSGPNStringMask | JSGPNSymbolMask | JSGPNPrivateMask | JSGPNSetEnum)
 
 	names := make([]string, len(pList))
 
@@ -231,10 +360,27 @@ func (v *Value) GetOwnPropertyNames() (_ []string, err error) {
 }
 
 func (v *Value) GetOwnProperties() []OwnProperty {
+	return v.getOwnProperties(JSGPNStringMask | JSGPNSymbolMask | JSGPNPrivateMask | JSGPNSetEnum)
+}
+
+func (v *Value) EnumerableOwnPropertyNames() ([]string, error) {
+	props := v.getOwnProperties(JSGPNStringMask | JSGPNSetEnum)
+	names := make([]string, 0, len(props))
+	for _, prop := range props {
+		if !prop.isEnumerable {
+			continue
+		}
+		names = append(names, prop.String())
+	}
+	return names, nil
+}
+
+func (v *Value) getOwnProperties(flags uint32) []OwnProperty {
 	ptr, entriesCount := v.context.CallUnPack(
 		"QJS_GetOwnPropertyNames",
 		v.Ctx(),
 		v.Raw(),
+		uint64(flags),
 	)
 	if entriesCount == 0 {
 		return []OwnProperty{}
@@ -268,6 +414,42 @@ func (v *Value) GetOwnProperties() []OwnProperty {
 	v.context.FreeHandle(uint64(ptr))
 
 	return property
+}
+
+func (v *Value) OwnPropertyDescriptor(name string) (PropertyDescriptor, error) {
+	atom := v.context.NewAtom(name)
+	defer atom.Free()
+
+	raw := v.Call("QJS_GetOwnPropertyFlags", v.Ctx(), v.Raw(), atom.Raw()).Handle().Uint64()
+	status := uint32(raw >> 32)
+	flags := uint32(raw)
+
+	switch status {
+	case 0:
+		return PropertyDescriptor{}, nil
+	case 1:
+		return PropertyDescriptor{
+			Exists:       true,
+			Enumerable:   flags&JSPropEnumerable != 0,
+			Configurable: flags&JSPropConfigurable != 0,
+			Writable:     flags&JSPropWritable != 0,
+			HasValue:     flags&JSPropHasValue != 0,
+			HasGetter:    flags&JSPropHasGet != 0,
+			HasSetter:    flags&JSPropHasSet != 0,
+		}, nil
+	default:
+		if v.context.HasException() {
+			return PropertyDescriptor{}, v.context.Exception()
+		}
+		return PropertyDescriptor{}, errors.New("failed to inspect own property descriptor")
+	}
+}
+
+func (v *Value) IntrinsicKind() IntrinsicKind {
+	if v == nil || !v.IsObject() {
+		return IntrinsicUnknown
+	}
+	return IntrinsicKind(v.Call("QJS_GetIntrinsicKind", v.Ctx(), v.Raw()).Uint32())
 }
 
 func (v *Value) GetProperty(name *Value) *Value {
@@ -525,13 +707,11 @@ func (v *Value) Await() (*Value, error) {
 }
 
 func (v *Value) IsMap() bool {
-	return v.IsObject() && v.IsGlobalInstanceOf("Map") ||
-		v.String() == "[object Map]"
+	return v.IntrinsicKind() == IntrinsicMap
 }
 
 func (v *Value) IsSet() bool {
-	return v.IsObject() && v.IsGlobalInstanceOf("Set") ||
-		v.String() == "[object Set]"
+	return v.IntrinsicKind() == IntrinsicSet
 }
 
 // IsGlobalInstanceOf checks if the value is an instance of the given global constructor.
@@ -550,8 +730,11 @@ func (v *Value) IsGlobalInstanceOf(name string) bool {
 
 // IsByteArray return true if the value is array buffer.
 func (v *Value) IsByteArray() bool {
-	return v.IsObject() && v.IsGlobalInstanceOf("ArrayBuffer") ||
-		v.String() == "[object ArrayBuffer]"
+	return v.IntrinsicKind() == IntrinsicArrayBuffer
+}
+
+func (v *Value) IsRegExp() bool {
+	return v.IntrinsicKind() == IntrinsicRegExp
 }
 
 // Object returns the object value of the value.

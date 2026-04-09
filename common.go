@@ -59,21 +59,6 @@ var (
 		reflect.Float32: {-math.MaxFloat32, math.MaxFloat32},
 		reflect.Float64: {-math.MaxFloat64, math.MaxFloat64},
 	}
-
-	// TypedArray types for validation.
-	typedArrayTypes = []string{
-		"Uint8Array",
-		"Int8Array",
-		"Uint16Array",
-		"Int16Array",
-		"Uint32Array",
-		"Int32Array",
-		"Float32Array",
-		"Float64Array",
-		"BigInt64Array",
-		"BigUint64Array",
-		"DataView",
-	}
 )
 
 // ObjectOrMap interface for unified object/map handling.
@@ -554,13 +539,7 @@ func NumericBoundsCheck(floatVal float64, targetKind reflect.Kind) error {
 
 // IsTypedArray returns true if the input is TypedArray or DataView.
 func IsTypedArray(input *Value) bool {
-	for _, typeName := range typedArrayTypes {
-		if input.IsGlobalInstanceOf(typeName) {
-			return true
-		}
-	}
-
-	return false
+	return input != nil && input.IntrinsicKind().IsTypedArray()
 }
 
 // processTempValue validates if temp is a valid result for the given T type.
