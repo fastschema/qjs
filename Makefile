@@ -1,13 +1,17 @@
 .PHONY: build build-debug clean
 
+CMAKE ?= cmake
+WASI_SDK_DIR ?= /opt/wasi-sdk
+WASI_TOOLCHAIN_FILE ?= $(WASI_SDK_DIR)/share/cmake/wasi-sdk.cmake
+
 build:
 		@echo "Configuring and building qjs..."
 		cd qjswasm/quickjs && \
 		rm -rf build && \
-		cmake -B build \
+		$(CMAKE) -B build \
 				-DQJS_BUILD_LIBC=ON \
 				-DQJS_BUILD_CLI_WITH_MIMALLOC=OFF \
-				-DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk.cmake \
+				-DCMAKE_TOOLCHAIN_FILE=$(WASI_TOOLCHAIN_FILE) \
 				-DCMAKE_PROJECT_INCLUDE=../qjswasm.cmake
 		@echo "Building qjs target..."
 		make -C qjswasm/quickjs/build qjswasm -j$(nproc)
@@ -20,11 +24,11 @@ build-debug:
 		@echo "Configuring and building qjs with runtime address debug..."
 		cd qjswasm/quickjs && \
 		rm -rf build && \
-		cmake -B build \
+		$(CMAKE) -B build \
 				-DQJS_BUILD_LIBC=ON \
 				-DQJS_BUILD_CLI_WITH_MIMALLOC=OFF \
 				-DQJS_DEBUG_RUNTIME_ADDRESS=ON \
-				-DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk.cmake \
+				-DCMAKE_TOOLCHAIN_FILE=$(WASI_TOOLCHAIN_FILE) \
 				-DCMAKE_PROJECT_INCLUDE=../qjswasm.cmake
 		@echo "Building qjs target..."
 		make -C qjswasm/quickjs/build qjswasm -j$(nproc)

@@ -517,7 +517,7 @@ uint64_t *QJS_AtomToCString(JSContext *ctx, JSAtom atom)
 }
 
 // returns a packed uint64_t value containing both the string's memory address (high 32 bits) and length (low 32 bits).
-uint64_t *QJS_GetOwnPropertyNames(JSContext *ctx, JSValue v)
+uint64_t *QJS_GetOwnPropertyNames(JSContext *ctx, JSValue v, uint32_t flags)
 {
     JSPropertyEnum *ptr;
     uint32_t size;
@@ -527,7 +527,7 @@ uint64_t *QJS_GetOwnPropertyNames(JSContext *ctx, JSValue v)
         &ptr,
         &size,
         v,
-        JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_PRIVATE_MASK);
+        flags);
 
     if (result < 0)
     {
@@ -545,6 +545,127 @@ uint64_t *QJS_GetOwnPropertyNames(JSContext *ctx, JSValue v)
     // Pack the pointer and size into the allocated memory
     *packed_result = ((uint64_t)(uintptr_t)ptr << 32) | (uint32_t)size;
     return packed_result;
+}
+
+uint64_t QJS_GetOwnPropertyFlags(JSContext *ctx, JSValue obj, JSAtom prop)
+{
+    JSPropertyDescriptor desc = {
+        .flags = 0,
+        .value = JS_UNDEFINED,
+        .getter = JS_UNDEFINED,
+        .setter = JS_UNDEFINED,
+    };
+    int result = JS_GetOwnProperty(ctx, &desc, obj, prop);
+    uint32_t status;
+    uint32_t flags = 0;
+
+    if (result < 0)
+    {
+        status = UINT32_MAX;
+    }
+    else if (result == 0)
+    {
+        status = 0;
+    }
+    else
+    {
+        status = 1;
+        flags = (uint32_t)(desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE | JS_PROP_TMASK));
+        flags |= JS_PROP_HAS_CONFIGURABLE | JS_PROP_HAS_ENUMERABLE;
+
+        if ((desc.flags & JS_PROP_TMASK) == JS_PROP_GETSET)
+        {
+            if (!JS_IsUndefined(desc.getter))
+            {
+                flags |= JS_PROP_HAS_GET;
+            }
+            if (!JS_IsUndefined(desc.setter))
+            {
+                flags |= JS_PROP_HAS_SET;
+            }
+        }
+        else
+        {
+            flags |= JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE;
+        }
+
+        JS_FreeValue(ctx, desc.value);
+        JS_FreeValue(ctx, desc.getter);
+        JS_FreeValue(ctx, desc.setter);
+    }
+
+    return ((uint64_t)status << 32) | flags;
+}
+
+uint32_t QJS_GetIntrinsicKind(JSContext *ctx, JSValue obj)
+{
+    if (!JS_IsObject(obj))
+    {
+        return 0;
+    }
+
+    if (JS_IsArray(obj))
+    {
+        return 2;
+    }
+    if (JS_IsDate(obj))
+    {
+        return 3;
+    }
+    if (JS_IsRegExp(obj))
+    {
+        return 4;
+    }
+    if (JS_IsMap(obj))
+    {
+        return 5;
+    }
+    if (JS_IsSet(obj))
+    {
+        return 6;
+    }
+    if (JS_IsArrayBuffer(obj))
+    {
+        return 7;
+    }
+    if (JS_IsDataView(obj))
+    {
+        return 8;
+    }
+    if (QJS_IsError(ctx, obj))
+    {
+        return 21;
+    }
+
+    switch (JS_GetTypedArrayType(obj))
+    {
+    case JS_TYPED_ARRAY_UINT8:
+        return 9;
+    case JS_TYPED_ARRAY_UINT8C:
+        return 10;
+    case JS_TYPED_ARRAY_INT8:
+        return 11;
+    case JS_TYPED_ARRAY_UINT16:
+        return 12;
+    case JS_TYPED_ARRAY_INT16:
+        return 13;
+    case JS_TYPED_ARRAY_UINT32:
+        return 14;
+    case JS_TYPED_ARRAY_INT32:
+        return 15;
+    case JS_TYPED_ARRAY_BIG_INT64:
+        return 16;
+    case JS_TYPED_ARRAY_BIG_UINT64:
+        return 17;
+    case JS_TYPED_ARRAY_FLOAT32:
+        return 18;
+    case JS_TYPED_ARRAY_FLOAT64:
+        return 19;
+    case JS_TYPED_ARRAY_FLOAT16:
+        return 20;
+    default:
+        return 1;
+    }
 }
 
 JSValue QJS_ParseJSON(JSContext *ctx, const char *buf)

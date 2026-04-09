@@ -267,6 +267,110 @@ func TestValueTypeChecks(t *testing.T) {
 	})
 }
 
+func TestValueIntrinsicKind(t *testing.T) {
+	rt, ctx := setupTestContext(t)
+	defer rt.Close()
+
+	cases := []struct {
+		name string
+		code string
+		want qjs.IntrinsicKind
+	}{
+		{name: "plain_object", code: `({ a: 1 })`, want: qjs.IntrinsicObject},
+		{name: "array", code: `[1, 2, 3]`, want: qjs.IntrinsicArray},
+		{name: "date", code: `new Date("2024-01-02T03:04:05Z")`, want: qjs.IntrinsicDate},
+		{name: "regexp", code: `/abc/gi`, want: qjs.IntrinsicRegExp},
+		{name: "map", code: `new Map([["a", 1]])`, want: qjs.IntrinsicMap},
+		{name: "set", code: `new Set([1, 2])`, want: qjs.IntrinsicSet},
+		{name: "array_buffer", code: `new ArrayBuffer(8)`, want: qjs.IntrinsicArrayBuffer},
+		{name: "data_view", code: `new DataView(new ArrayBuffer(8))`, want: qjs.IntrinsicDataView},
+		{name: "uint8_array", code: `new Uint8Array(new ArrayBuffer(8))`, want: qjs.IntrinsicUint8Array},
+		{name: "big_uint64_array", code: `new BigUint64Array(new ArrayBuffer(16))`, want: qjs.IntrinsicBigUint64Array},
+		{name: "spoofed_to_string_tag", code: `({ [Symbol.toStringTag]: "Map" })`, want: qjs.IntrinsicObject},
+		{name: "spoofed_constructor_name", code: `({ constructor: { name: "Set" } })`, want: qjs.IntrinsicObject},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			val := must(ctx.Eval("test.js", qjs.Code(tc.code)))
+			defer val.Free()
+			assert.Equal(t, tc.want, val.IntrinsicKind())
+		})
+	}
+}
+
+func TestValueOwnPropertyDescriptor(t *testing.T) {
+	rt, ctx := setupTestContext(t)
+	defer rt.Close()
+
+	t.Run("data_property", func(t *testing.T) {
+		val := must(ctx.Eval("test.js", qjs.Code(`({ a: 1 })`)))
+		defer val.Free()
+
+		desc, err := val.OwnPropertyDescriptor("a")
+		require.NoError(t, err)
+		assert.True(t, desc.Exists)
+		assert.True(t, desc.Enumerable)
+		assert.True(t, desc.Configurable)
+		assert.True(t, desc.Writable)
+		assert.True(t, desc.HasValue)
+		assert.False(t, desc.IsAccessor())
+	})
+
+	t.Run("enumerable_accessor", func(t *testing.T) {
+		val := must(ctx.Eval("test.js", qjs.Code(`(() => {
+			const obj = {};
+			Object.defineProperty(obj, "a", { enumerable: true, get() { return 1; } });
+			return obj;
+		})()`)))
+		defer val.Free()
+
+		desc, err := val.OwnPropertyDescriptor("a")
+		require.NoError(t, err)
+		assert.True(t, desc.Exists)
+		assert.True(t, desc.Enumerable)
+		assert.True(t, desc.HasGetter)
+		assert.False(t, desc.HasValue)
+		assert.True(t, desc.IsAccessor())
+	})
+
+	t.Run("non_enumerable_accessor", func(t *testing.T) {
+		val := must(ctx.Eval("test.js", qjs.Code(`(() => {
+			const obj = {};
+			Object.defineProperty(obj, "a", { enumerable: false, get() { return 1; } });
+			return obj;
+		})()`)))
+		defer val.Free()
+
+		desc, err := val.OwnPropertyDescriptor("a")
+		require.NoError(t, err)
+		assert.True(t, desc.Exists)
+		assert.False(t, desc.Enumerable)
+		assert.True(t, desc.HasGetter)
+		assert.True(t, desc.IsAccessor())
+	})
+
+	t.Run("null_prototype_object", func(t *testing.T) {
+		val := must(ctx.Eval("test.js", qjs.Code(`(() => {
+			const obj = Object.create(null);
+			Object.defineProperty(obj, "a", { value: 1, enumerable: true, writable: true, configurable: true });
+			return obj;
+		})()`)))
+		defer val.Free()
+
+		desc, err := val.OwnPropertyDescriptor("a")
+		require.NoError(t, err)
+		assert.True(t, desc.Exists)
+		assert.True(t, desc.Enumerable)
+		assert.True(t, desc.Writable)
+		assert.True(t, desc.Configurable)
+
+		names, err := val.EnumerableOwnPropertyNames()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a"}, names)
+	})
+}
+
 func TestValueConversions(t *testing.T) {
 	rt, ctx := setupTestContext(t)
 	defer rt.Close()
