@@ -8,6 +8,7 @@ import (
 	"github.com/fastschema/qjs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/wazero"
 )
 
 func TestEvalOptions(t *testing.T) {
@@ -22,7 +23,7 @@ func TestEvalOptions(t *testing.T) {
 		val.Free()
 	})
 
-	t.Run("CWDOption", func(t *testing.T) {
+	t.Run("ModuleConfig", func(t *testing.T) {
 		// Store original working directory to restore later
 		originalCwd, err := os.Getwd()
 		require.NoError(t, err)
@@ -31,20 +32,29 @@ func TestEvalOptions(t *testing.T) {
 			_ = os.Chdir(originalCwd)
 		})
 
-		t.Run("default_cwd_from_os_getwd", func(t *testing.T) {
+		t.Run("nil_uses_default_module_config", func(t *testing.T) {
 			runtime, err := qjs.New()
 			require.NoError(t, err)
 			runtime.Close()
 		})
 
-		t.Run("explicit_cwd_provided", func(t *testing.T) {
+		t.Run("custom_fs_mount", func(t *testing.T) {
 			tempDir := t.TempDir()
-			runtime, err := qjs.New(qjs.Option{CWD: tempDir})
+			runtime, err := qjs.New(qjs.Option{
+				ModuleConfig: wazero.NewModuleConfig().
+					WithStartFunctions().
+					WithSysWalltime().
+					WithSysNanotime().
+					WithSysNanosleep().
+					WithFSConfig(wazero.NewFSConfig().WithDirMount(tempDir, "/")).
+					WithStdout(os.Stdout).
+					WithStderr(os.Stderr),
+			})
 			require.NoError(t, err)
 			runtime.Close()
 		})
 
-		t.Run("deleted_working_directory", func(t *testing.T) {
+		t.Run("nil_default_after_deleted_working_directory", func(t *testing.T) {
 			// Create a temporary directory and change to it
 			tempDir := t.TempDir()
 			subDir := filepath.Join(tempDir, "workdir")
@@ -59,10 +69,17 @@ func TestEvalOptions(t *testing.T) {
 			err = os.RemoveAll(subDir)
 			require.NoError(t, err)
 
+			_, getwdErr := os.Getwd()
 			_, err = qjs.New()
 			_ = os.Chdir(originalCwd)
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "failed to get runtime options")
+
+			if getwdErr != nil {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to get runtime options")
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	})
 

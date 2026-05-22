@@ -3,8 +3,9 @@ package qjs
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
+
+	"github.com/tetratelabs/wazero"
 )
 
 const (
@@ -31,9 +32,7 @@ const (
 )
 
 type Option struct {
-	CWD               string
-	StartFunctionName string
-	Context           context.Context
+	Context context.Context
 	// Enabling this option significantly increases evaluation time
 	// because every operation must check the done context, which introduces additional overhead.
 	CloseOnContextDone bool
@@ -45,8 +44,7 @@ type Option struct {
 	GCThreshold        int
 	QuickJSWasmBytes   []byte
 	ProxyFunction      any
-	Stdout             io.Writer
-	Stderr             io.Writer
+	ModuleConfig       wazero.ModuleConfig
 }
 
 // EvalOption configures JavaScript evaluation behavior in QuickJS context.
@@ -221,12 +219,6 @@ func getRuntimeOption(registry *ProxyRegistry, options ...Option) (option Option
 		option = options[0]
 	}
 
-	if option.CWD == "" {
-		if option.CWD, err = os.Getwd(); err != nil {
-			return Option{}, fmt.Errorf("cannot get current working directory: %w", err)
-		}
-	}
-
 	if option.Context == nil {
 		option.Context = context.Background()
 	}
@@ -235,12 +227,24 @@ func getRuntimeOption(registry *ProxyRegistry, options ...Option) (option Option
 		option.ProxyFunction = createFuncProxyWithRegistry(registry)
 	}
 
-	if option.Stdout == nil {
-		option.Stdout = os.Stdout
-	}
+	if option.ModuleConfig == nil {
+		var cwd string
+		if cwd, err = os.Getwd(); err != nil {
+			return Option{}, fmt.Errorf("cannot get current working directory: %w", err)
+		}
 
-	if option.Stderr == nil {
-		option.Stderr = os.Stderr
+		fsConfig := wazero.
+			NewFSConfig().
+			WithDirMount(cwd, "/")
+
+		option.ModuleConfig = wazero.NewModuleConfig().
+			WithStartFunctions().
+			WithSysWalltime().
+			WithSysNanotime().
+			WithSysNanosleep().
+			WithFSConfig(fsConfig).
+			WithStdout(os.Stdout).
+			WithStderr(os.Stderr)
 	}
 
 	return option, nil

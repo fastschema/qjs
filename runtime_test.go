@@ -11,6 +11,7 @@ import (
 	"github.com/fastschema/qjs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/wazero"
 )
 
 func testConcurrentRuntimeExecution(t *testing.T, threadID int) {
@@ -165,7 +166,19 @@ func TestRuntime(t *testing.T) {
 
 	t.Run("RuntimeCreationWithErrorStartFunction", func(t *testing.T) {
 		invalidStartFunc := "QJS_Panic"
-		_, err := qjs.New(qjs.Option{StartFunctionName: invalidStartFunc})
+		cwd, getwdErr := os.Getwd()
+		require.NoError(t, getwdErr)
+
+		_, err := qjs.New(qjs.Option{
+			ModuleConfig: wazero.NewModuleConfig().
+				WithStartFunctions(invalidStartFunc).
+				WithSysWalltime().
+				WithSysNanotime().
+				WithSysNanosleep().
+				WithFSConfig(wazero.NewFSConfig().WithDirMount(cwd, "/")).
+				WithStdout(os.Stdout).
+				WithStderr(os.Stderr),
+		})
 		assert.Error(t, err, "Creating runtime with invalid start function should return error")
 	})
 

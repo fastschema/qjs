@@ -176,7 +176,7 @@ func main() {
 	// Precompile the script to bytecode
 	byteCode := must(ctx.Compile("script.js", qjs.Code(script), qjs.TypeModule()))
 	// Use a pool of runtimes for concurrent requests
-	pool := qjs.NewPool(3, &qjs.Option{}, func(r *qjs.Runtime) error {
+	pool := qjs.NewPool(3, qjs.Option{}, func(r *qjs.Runtime) error {
 		results := must(r.Context().Eval("script.js", qjs.Bytecode(byteCode), qjs.TypeModule()))
 		// Store the exported functions in the global object for easy access
 		r.Context().Global().SetPropertyStr("handlers", results)
@@ -591,7 +591,7 @@ func main() {
 		return nil
 	}
 	// Create a pool with 3 runtimes
-	pool := qjs.NewPool(3, &qjs.Option{}, setupFunc)
+	pool := qjs.NewPool(3, qjs.Option{}, setupFunc)
 	numWorkers := 5
 	numTasks := 3
 	var wg sync.WaitGroup
@@ -714,14 +714,19 @@ qjs.ToJSValue(ctx, goValue)             // Convert Go value to JS (auto-detects 
 
 ```go
 type Option struct {
-    CWD                string  // Working directory
-    MaxStackSize       int     // Stack size limit
-    MemoryLimit        int     // Memory usage limit  
-    MaxExecutionTime   int     // Execution timeout
-    GCThreshold        int     // GC trigger threshold
-    CacheDir           string  // Compilation cache directory
+	ModuleConfig       wazero.ModuleConfig // Wazero module setup (FS, stdio, start functions)
+	MaxStackSize       int                 // Stack size limit
+	MemoryLimit        int                 // Memory usage limit
+	MaxExecutionTime   int                 // Execution timeout
+	GCThreshold        int                 // GC trigger threshold
+	CacheDir           string              // Compilation cache directory
 }
 ```
+
+When `ModuleConfig` is nil, `qjs` creates a default config that mounts the current working
+directory at `/`, enables walltime/nanotime/nanosleep, and wires stdout/stderr to the host.
+When you provide `ModuleConfig` yourself, include `WithStartFunctions()` to clear wazero's
+default `_start` entry unless you explicitly want start functions to run at instantiation.
 
 ## Performance & Security
 
