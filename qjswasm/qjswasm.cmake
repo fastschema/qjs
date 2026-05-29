@@ -153,6 +153,15 @@ target_link_options(qjswasm PRIVATE
     "LINKER:--export=malloc"
     "LINKER:--export=free"
     "LINKER:--export=initialize"
+
+    # Grow the C shadow stack well beyond wasm-ld's ~1 MiB default.
+    # QuickJS's parser/evaluator recurse in C, so deep (but ordinary)
+    # source nesting overflowed the small default stack and trapped as
+    # "out of bounds memory access". With --stack-first the stack sits at
+    # the bottom of linear memory, so initial memory must exceed
+    # stack-size + data. See fastschema/qjs#47.
+    "LINKER:-z,stack-size=16777216"        # 16 MiB C stack
+    "LINKER:--initial-memory=20971520"     # 320 pages (20 MiB)
 )
 
 target_compile_options(qjswasm PRIVATE "-fvisibility=default")
