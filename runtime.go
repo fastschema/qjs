@@ -132,12 +132,30 @@ func New(options ...Option) (runtime *Runtime, err error) {
 		return nil, fmt.Errorf("failed to setup host module: %w", err)
 	}
 
+	// Compile on this runtime rather than reusing the globally compiled
+	// module: CompileModule bakes the compiling Runtime's store-assigned
+	// function type IDs into the CompiledModule, and since wazero v1.12
+	// import resolution compares those numeric IDs (needed for the GC
+	// proposal's concrete ref types) instead of structural signatures.
+	// Instantiating a module compiled on another Runtime therefore fails
+	// with "signature mismatch" on identical-looking signatures. The
+	// machine code is shared through the CompilationCache held in
+	// cachedRuntimeConfig, so this per-runtime compile is a cache hit.
+	qjsBytes := wasmBytes
+	if len(option.QuickJSWasmBytes) > 0 {
+		qjsBytes = option.QuickJSWasmBytes
+	}
+	localCompiled, err := runtime.wrt.CompileModule(option.Context, qjsBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile qjs module: %w", err)
+	}
+
 	fsConfig := wazero.
 		NewFSConfig().
 		WithDirMount(runtime.option.CWD, "/")
 	if runtime.module, err = runtime.wrt.InstantiateModule(
 		option.Context,
-		compiledQJSModule,
+		localCompiled,
 		wazero.NewModuleConfig().
 			WithStartFunctions(option.StartFunctionName).
 			WithSysWalltime().
