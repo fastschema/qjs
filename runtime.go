@@ -199,6 +199,14 @@ func (r *Runtime) Close() {
 		r.module = nil
 	}
 
+	// Close the wazero runtime too: it owns the WASI and env host modules New
+	// instantiated, which are compiled into the shared compilation cache under
+	// a pointer-derived ID and are only removed when the runtime closes.
+	if r.wrt != nil {
+		_ = r.wrt.Close(context.Background())
+		r.wrt = nil
+	}
+
 	// Clear references
 	if r.context != nil {
 		r.context = nil
